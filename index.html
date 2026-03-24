@@ -797,6 +797,9 @@ function drawCell(idx){
 
 // ===== CLICK =====
 function shouldExplode(idx){
+  // Never explode on correct solution cells
+  const solCells=puzzle.solution.map((c,r)=>r*N+c);
+  if(solCells.includes(idx)) return false;
   // 1. Direct conflict with already-placed bulb
   const ir=Math.floor(idx/N),ic=idx%N,reg=puzzle.regions[idx];
   for(let i=0;i<N*N;i++){
