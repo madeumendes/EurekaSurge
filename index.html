@@ -102,6 +102,7 @@ transition:all .15s;white-space:nowrap;flex-shrink:0;
 width:100%;max-width:560px;
 padding:16px 16px 0;
 display:flex;justify-content:center;
+overflow-x:auto;-webkit-overflow-scrolling:touch;
 }
 #grid-card{
 background:var(--surface);
@@ -436,8 +437,8 @@ body.shaking{animation:screenShake 0.4s ease both}
       <div class="how-icon">👆</div><div class="how-txt" data-h="rule3"><b>Toque/clique</b> para alternar: vazio → ✕ (eliminar) → 💡 → vazio.</div>
       <div class="how-icon">✕</div><div class="how-txt" data-h="rule4">Usa o <b>✕</b> para marcar células que não podem ter lâmpada.</div>
       <div class="how-sep"></div>
-      <div class="how-icon">💣</div><div class="how-txt" data-h="rule5"><b>Bombas escondidas</b> em células armadilha. Perdes uma vida e 30s se acertares.</div>
-      <div class="how-icon">⭐</div><div class="how-txt" data-h="rule6">Acerta uma lâmpada <b>à primeira</b> (sem ✕ antes) para ganhar <b>+50 pontos</b> bónus!</div>
+      <div class="how-icon">💣</div><div class="how-txt" data-h="rule5">Colocar lâmpada num sítio impossível mostra 💣 <b>Algo está mal</b> — penaliza pontos no final.</div>
+      <div class="how-icon">⭐</div><div class="how-txt" data-h="rule6">Se a tua <b>primeira lâmpada</b> no tabuleiro estiver correcta, ganhas <b>+50 pontos</b> bónus (revelado no fim)!</div>
       <div class="how-sep"></div>
       <div class="how-icon">📅</div><div class="how-txt" data-h="rule7">O <b>Desafio Diário</b> é o mesmo puzzle para todos — compara o teu tempo!</div>
     </div>
@@ -466,14 +467,15 @@ const I={
     gameOver:'💥 Fim de Jogo',noLives:'Sem mais vidas!',retry:'Tentar novamente',
     genFail:'Não foi possível gerar puzzle. Recarregue a página.',
     resetStats:'Limpar estatísticas',resetConfirm:'Limpar todas as estatísticas?',
+    bombWarn:'⚠️ Algo está mal!',
     giveUp:'Desistir',giveUpConfirm:'Desistir e ver a solução?',lastLife:'Última vida!',
     howToPlay:'Como Jogar',firstTry:'à primeira',bonus:'bónus',
     rule1:'Coloca <b>uma lâmpada</b> em cada linha, coluna e região colorida.',
     rule2:'Lâmpadas <b>não podem ser adjacentes</b> — nem na diagonal.',
     rule3:'<b>Toque/clique</b> para alternar: vazio → ✕ (eliminar) → 💡 → vazio.',
     rule4:'Usa o <b>✕</b> para marcar células que não podem ter lâmpada.',
-    rule5:'Colocar lâmpada onde já há conflito visível (mesma linha/coluna/região/adjacente) = 💥 <b>-1 vida + 30s</b>.',
-    rule6:'Acerta uma lâmpada <b>à primeira</b> (sem ✕ antes) para ganhar <b>+50 pontos</b> bónus!',
+    rule5:'Colocar lâmpada num sítio impossível mostra 💣 <b>Algo está mal</b> — penaliza pontos no final.',
+    rule6:'Se a tua <b>primeira lâmpada</b> no tabuleiro estiver correcta, ganhas <b>+50 pontos</b> bónus (revelado no fim)!',
     rule7:'O <b>Desafio Diário</b> é o mesmo puzzle para todos — compara o teu tempo!'
   },
   en:{
@@ -487,14 +489,15 @@ const I={
     gameOver:'💥 Game Over',noLives:'No lives left!',retry:'Try again',
     genFail:'Could not generate puzzle. Please reload.',
     resetStats:'Reset statistics',resetConfirm:'Reset all statistics?',
+    bombWarn:'⚠️ Something\'s wrong!',
     giveUp:'Give up',giveUpConfirm:'Give up and see the solution?',lastLife:'Last life!',
     howToPlay:'How to Play',firstTry:'first try',bonus:'bonus',
     rule1:'Place <b>one lightbulb</b> in each row, column and coloured region.',
     rule2:'Lightbulbs <b>cannot be adjacent</b> — not even diagonally.',
     rule3:'<b>Tap/click</b> to cycle: empty → ✕ (eliminate) → 💡 → empty.',
     rule4:'Use <b>✕</b> to mark cells that cannot have a lightbulb.',
-    rule5:'Placing a bulb where there\'s a visible conflict (same row/col/region/adjacent) = 💥 <b>-1 life + 30s</b>.',
-    rule6:'Place a lightbulb <b>first try</b> (no ✕ before) for <b>+50 points</b> bonus!',
+    rule5:'Placing a bulb in an impossible spot shows 💣 <b>Something\'s wrong</b> — score penalty at the end.',
+    rule6:'If your <b>first lightbulb</b> on the board is correct, you earn <b>+50 points</b> bonus (revealed at the end)!',
     rule7:'The <b>Daily Challenge</b> is the same puzzle for everyone — compare your time!'
   }
 };
@@ -747,8 +750,8 @@ function bulbSVG(sz){
 // ===== GRID RENDER =====
 function cellPx(){
   const avail=Math.min(window.innerWidth-40,524);
-  // min 32px for 12x12, min 44px for touch on smaller grids
-  const minPx=N>=10?32:44;
+  // Ensure grid always fits on screen — allow smaller cells for large grids
+  const minPx=N>=10?28:N>=8?34:44;
   return Math.max(minPx,Math.floor(avail/N));
 }
 
@@ -886,28 +889,9 @@ function onClick(idx){
     sfxBulb();
     const solIdx=puzzle.solution.map((c,r)=>r*N+c);
     const isSol=solIdx.includes(idx);
-    // Bonus: first bulb placed in the entire puzzle, if correct
-    const totalBulbs=cellState.filter(s=>s===2).length;
-    if(isSol&&totalBulbs===1&&firstTries===0){
+    // Silently track first-try bonus (revealed only at win screen)
+    if(isSol&&touchedCells.size===0&&firstTries===0){
       firstTries++;
-      const el=document.querySelector(`.cell[data-i="${idx}"]`);
-      if(el){
-        el.classList.add('first-try');
-        const bonus=document.createElement('div');
-        bonus.className='ft-bonus';
-        bonus.textContent='⭐ +50';
-        el.appendChild(bonus);
-        // Also show score flash at top
-        const sd=document.getElementById('score-disp');
-        sd.textContent='⭐ +50!';
-        sd.style.color='#D97706';
-        setTimeout(()=>{sd.textContent='';sd.style.color='';},1500);
-        setTimeout(()=>{el.classList.remove('first-try');bonus.remove();},1300);
-      }
-    } else if(isSol){
-      // Correct but not first try — still show it's correct with subtle feedback
-      const el=document.querySelector(`.cell[data-i="${idx}"]`);
-      if(el){el.style.outline='2px solid #5B9EA0';setTimeout(()=>{el.style.outline='';},800);}
     }
     touchedCells.add(idx);
     if(document.getElementById('o-autox').checked) autoMark(idx);
@@ -921,52 +905,43 @@ function onClick(idx){
   if(!timerOn&&(next!==0)) startTimer();
 }
 
-// ===== BOMB (penalty) =====
+// ===== BOMB (gentle warning + penalty, no game over) =====
 function doBomb(idx){
   if(!timerOn) startTimer();
   elapsed+=30;
   bombsHit++;sfxBomb();
-  // Screen shake
+  // Gentle shake
   document.body.classList.remove('shaking');
   void document.body.offsetWidth;
   document.body.classList.add('shaking');
   setTimeout(()=>document.body.classList.remove('shaking'),500);
-  // Red flash
+  // Soft red flash
   const flash=document.getElementById('bomb-flash');
   if(flash){
-    flash.style.transition='opacity 0.1s';
-    flash.style.opacity='0.35';
-    setTimeout(()=>{flash.style.opacity='0.6';},100);
-    setTimeout(()=>{flash.style.opacity='0.35';},200);
-    setTimeout(()=>{flash.style.opacity='0';},400);
+    flash.style.transition='opacity 0.15s';
+    flash.style.opacity='0.2';
+    setTimeout(()=>{flash.style.opacity='0';},500);
   }
-  // Cell animation
+  // Cell: brief warning then mark as X
   const el=document.querySelector(`.cell[data-i="${idx}"]`);
   const cc=document.getElementById('cc'+idx);
   if(el){
     el.style.animation='bombBoom 0.5s ease both';
-    if(cc) cc.innerHTML='<span style="font-size:1.6em;display:block">💥</span>';
+    if(cc) cc.innerHTML='<span style="font-size:1.4em;display:block">💣</span>';
     setTimeout(()=>{
       el.style.animation='';
-      if(cc) cc.innerHTML='';
-    },1200);
+      cellState[idx]=1;isAutoX[idx]=false;
+      drawCell(idx);
+    },1000);
   }
+  // Visual lives feedback (no game over)
   lives=Math.max(0,lives-1);
   renderLives();
-  if(lives===1){
-    const sd=document.getElementById('score-disp');
-    sd.textContent='⚠️ '+t('lastLife');
-    sd.style.color='#c44';
-  }
-  if(lives===0) setTimeout(()=>{
-    over=true;stopTimer();recordLoss();
-    // Show solution before game over overlay
-    for(let i=0;i<N*N;i++){cellState[i]=0;isAutoX[i]=false;}
-    for(let r=0;r<N;r++) cellState[r*N+puzzle.solution[r]]=2;
-    for(let i=0;i<N*N;i++) drawCell(i);
-    redrawErrors();
-    setTimeout(()=>{document.getElementById('goov').classList.add('show');},2000);
-  },700);
+  // Show "something's wrong" message
+  const sd=document.getElementById('score-disp');
+  sd.textContent=t('bombWarn');
+  sd.style.color='#c44';
+  setTimeout(()=>{sd.textContent='';sd.style.color='';},2000);
 }
 
 function renderLives(){
@@ -1006,14 +981,14 @@ function reAutoX(){
 
 // ===== HISTORY =====
 function push(){
-  history.push({s:[...cellState],a:[...isAutoX],lv:lives});
+  history.push({s:[...cellState],a:[...isAutoX]});
   if(history.length>120) history.shift();
 }
 function undo(){
   if(!history.length) return;
   const h=history.pop();
-  cellState=[...h.s];isAutoX=[...h.a];lives=h.lv;
-  renderLives();
+  cellState=[...h.s];isAutoX=[...h.a];
+  // lives are NOT restored — damage is permanent
   for(let i=0;i<N*N;i++) drawCell(i);
   redrawErrors();updateDone();
 }
@@ -1127,6 +1102,11 @@ function checkWin(){
     document.getElementById('wscore').textContent=t('score')+': '+score;
     document.getElementById('wov').classList.add('show');
     confetti();sfxWin();
+    // Auto-new game after 5 seconds
+    _autoNewTimer=setTimeout(()=>{
+      document.getElementById('wov').classList.remove('show');
+      newGame(N,false);
+    },5000);
   },600);
 }
 
